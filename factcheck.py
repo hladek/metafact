@@ -21,8 +21,8 @@ if _api_key:
 if _api_base:
     litellm.api_base = _api_base
 
-# Reputable fact-checking and news sources to prefer in the first search pass
-REPUTABLE_SITES = [
+# Fallback sources used only if the LLM fails to produce relevant ones
+_FALLBACK_SITES = [
     "reuters.com",
     "apnews.com",
     "bbc.com",
@@ -42,10 +42,9 @@ TOOLS = [
         "function": {
             "name": "search_reputable_sources",
             "description": (
-                "Search reputable news outlets, fact-checking sites, and "
-                "academic/government sources (Reuters, AP News, BBC, FactCheck.org, "
-                "PolitiFact, Snopes, WHO, etc.) for evidence about a claim. "
-                "Always use this tool first."
+                "Search the pre-selected reputable sources identified for this claim "
+                "(topic-relevant news outlets, fact-checking sites, academic/government "
+                "sources). Always use this tool first."
             ),
             "parameters": {
                 "type": "object",
@@ -95,17 +94,56 @@ def _format_results(results: list[dict]) -> str:
     return "\n\n---\n\n".join(formatted)
 
 
-def search_reputable_sources(query: str, max_results: int = 6) -> str:
-    """Search within reputable sites using a site-filter query."""
-    site_filter = " OR ".join(f"site:{s}" for s in REPUTABLE_SITES)
+def get_relevant_sources(claim: str, model: str) -> list[str]:
+    """Ask the LLM for 10 reputable domains most relevant to fact-checking this claim."""
+    response = litellm.completion(
+        model=model,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a research librarian. Given a claim, return the 10 most "
+                    "reputable and relevant domains (news outlets, fact-checking sites, "
+                    "academic or government sources) for verifying it. "
+                    "Respond ONLY with a JSON array of domain names, e.g.: "
+                    '["reuters.com", "who.int"]'
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f'Claim: "{claim}"\n\n'
+                    "List 10 reputable domains best suited to fact-check this claim."
+                ),
+            },
+        ],
+    )
+    content = (response.choices[0].message.content or "").strip()
+    try:
+        start = content.find("[")
+        end = content.rfind("]") + 1
+        if start != -1 and end > start:
+            domains = json.loads(content[start:end])
+            sites = [d.strip() for d in domains if isinstance(d, str)][:10]
+            if sites:
+                return sites
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return _FALLBACK_SITES
+
+
+def search_reputable_sources(query: str, sites: list[str], max_results: int = 6) -> str:
+    """Search within the provided reputable sites using a site-filter query."""
+    site_filter = " OR ".join(f"site:{s}" for s in sites)
     restricted_query = f"({query}) ({site_filter})"
     try:
         with DDGS() as ddgs:
             results = list(ddgs.text(restricted_query, max_results=max_results))
         if not results:
-            # Retry without strict site filter (DDG may reject complex queries)
+            # Retry with just the first three sites (DDG may reject long queries)
+            short_filter = " OR ".join(f"site:{s}" for s in sites[:3])
             with DDGS() as ddgs:
-                results = list(ddgs.text(query + " site:reuters.com OR site:apnews.com OR site:bbc.com OR site:factcheck.org OR site:politifact.com", max_results=max_results))
+                results = list(ddgs.text(f"({query}) ({short_filter})", max_results=max_results))
         return _format_results(results)
     except Exception as e:
         return f"Search error: {e}"
@@ -121,11 +159,11 @@ def search_web(query: str, max_results: int = 6) -> str:
         return f"Search error: {e}"
 
 
-def _dispatch_tool(name: str, arguments: dict) -> str:
+def _dispatch_tool(name: str, arguments: dict, sites: list[str]) -> str:
     """Route a tool call to the appropriate function."""
     if name == "search_reputable_sources":
         print(f"  [tool] search_reputable_sources: {arguments.get('query', '')!r}")
-        return search_reputable_sources(arguments["query"])
+        return search_reputable_sources(arguments["query"], sites=sites)
     if name == "search_web":
         print(f"  [tool] search_web: {arguments.get('query', '')!r}")
         return search_web(arguments["query"])
@@ -175,6 +213,11 @@ def verify_claim(claim: str, model: str = DEFAULT_MODEL) -> dict[str, Any]:
     Returns:
         Dict with keys: verdict, confidence, summary, justification, sources.
     """
+    # Step 1: identify the best sources for this specific claim
+    print("  [setup] Identifying relevant sources…")
+    sites = get_relevant_sources(claim, model)
+    print(f"  [setup] Sources: {', '.join(sites)}")
+
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Please fact-check this claim:\n\n\"{claim}\""},
@@ -215,7 +258,7 @@ def verify_claim(claim: str, model: str = DEFAULT_MODEL) -> dict[str, Any]:
                     args = json.loads(tc.function.arguments)
                 except json.JSONDecodeError:
                     args = {}
-                result = _dispatch_tool(tc.function.name, args)
+                result = _dispatch_tool(tc.function.name, args, sites)
                 messages.append(
                     {
                         "role": "tool",
