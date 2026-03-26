@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
-    "duckduckgo-search>=8.1.1",
+    "ddgs>=9.11.4",
     "litellm>=1.82.0",
     "streamlit>=1.40.0",
 ]

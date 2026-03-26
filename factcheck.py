@@ -9,7 +9,7 @@ import os
 from typing import Any
 
 import litellm
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 # ── Configuration from environment variables ──────────────────────────────────
 DEFAULT_MODEL = os.getenv("METAFACT_MODEL", "openai/gpt-4o-mini")
@@ -233,23 +233,8 @@ def verify_claim(claim: str, model: str = DEFAULT_MODEL) -> dict[str, Any]:
 
         assistant_msg = response.choices[0].message
 
-        # Append assistant message — use dict form for clean serialisation
-        msg_dict: dict[str, Any] = {"role": "assistant"}
-        if assistant_msg.content:
-            msg_dict["content"] = assistant_msg.content
-        if assistant_msg.tool_calls:
-            msg_dict["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-                for tc in assistant_msg.tool_calls
-            ]
-        messages.append(msg_dict)
+        # Append assistant message directly (as per LiteLLM docs)
+        messages.append(assistant_msg)
 
         if assistant_msg.tool_calls:
             # Execute each tool call and feed results back
@@ -263,6 +248,7 @@ def verify_claim(claim: str, model: str = DEFAULT_MODEL) -> dict[str, Any]:
                     {
                         "role": "tool",
                         "tool_call_id": tc.id,
+                        "name": tc.function.name,
                         "content": result,
                     }
                 )
