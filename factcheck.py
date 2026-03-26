@@ -5,10 +5,21 @@ The CLI entry point lives in cli.py.
 """
 
 import json
+import os
 from typing import Any
 
 import litellm
 from duckduckgo_search import DDGS
+
+# ── Configuration from environment variables ──────────────────────────────────
+DEFAULT_MODEL = os.getenv("METAFACT_MODEL", "openai/gpt-4o-mini")
+
+_api_key = os.getenv("OPENAI_API_KEY", "")
+_api_base = os.getenv("OPENAI_API_BASE", "")
+if _api_key:
+    os.environ["OPENAI_API_KEY"] = _api_key
+if _api_base:
+    litellm.api_base = _api_base
 
 # Reputable fact-checking and news sources to prefer in the first search pass
 REPUTABLE_SITES = [
@@ -150,7 +161,7 @@ Verdict definitions:
 """
 
 
-def verify_claim(claim: str, model: str = "openai/gpt-4o-mini") -> dict[str, Any]:
+def verify_claim(claim: str, model: str = DEFAULT_MODEL) -> dict[str, Any]:
     """
     Verify a political claim using an LLM with web-search tool calling.
 
