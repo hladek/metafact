@@ -174,10 +174,11 @@ SYSTEM_PROMPT = """\
 You are a rigorous, non-partisan fact-checker specializing in political claims.
 
 Your task:
-1. Use `search_reputable_sources` first to find evidence from authoritative outlets.
-2. If those results are insufficient, use `search_web` as a fallback.
-3. Cross-reference multiple sources before reaching a verdict.
-4. Reason carefully about the evidence — distinguish between confirmed facts,
+1. Search 10 different sources maximum.
+2. Use `search_reputable_sources` first to find evidence from authoritative outlets.
+3. If those results are insufficient, use `search_web` as a fallback.
+4. Cross-reference multiple sources before reaching a verdict.
+5. Reason carefully about the evidence — distinguish between confirmed facts,
    contested claims, and outright falsehoods.
 
 After gathering sufficient evidence, respond ONLY with a JSON object (no markdown fences):
@@ -223,12 +224,18 @@ def verify_claim(claim: str, model: str = DEFAULT_MODEL) -> dict[str, Any]:
         {"role": "user", "content": f"Please fact-check this claim:\n\n\"{claim}\""},
     ]
 
-    for iteration in range(12):  # safety cap on agentic loop iterations
+    MAX_TOOL_CALLS = 10
+    tool_calls_made = 0
+
+    while True:
+        # If the limit is reached, force the model to answer without tools
+        tool_choice = "none" if tool_calls_made >= MAX_TOOL_CALLS else "auto"
+
         response = litellm.completion(
             model=model,
             messages=messages,
             tools=TOOLS,
-            tool_choice="auto",
+            tool_choice=tool_choice,
         )
 
         assistant_msg = response.choices[0].message
@@ -252,6 +259,7 @@ def verify_claim(claim: str, model: str = DEFAULT_MODEL) -> dict[str, Any]:
                         "content": result,
                     }
                 )
+            tool_calls_made += len(assistant_msg.tool_calls)
         else:
             # No tool calls → LLM has produced its final answer
             content = (assistant_msg.content or "").strip()
@@ -270,14 +278,6 @@ def verify_claim(claim: str, model: str = DEFAULT_MODEL) -> dict[str, Any]:
                 "justification": content,
                 "sources": [],
             }
-
-    return {
-        "verdict": "UNVERIFIABLE",
-        "confidence": 0.0,
-        "summary": "Reached maximum iterations without a conclusive verdict.",
-        "justification": "The agent could not complete the fact-check within the allowed steps.",
-        "sources": [],
-    }
 
 
 
