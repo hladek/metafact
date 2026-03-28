@@ -10,7 +10,7 @@ import sys
 
 import streamlit as st
 
-from factcheck import verify_claim
+from factcheck import verify_claim_model, verify_claim_search
 
 VERDICT_CONFIG = {
     "TRUE":         {"color": "#2e7d32", "icon": "✅", "label": "True"},
@@ -67,15 +67,25 @@ def main() -> None:
     )
 
     run = st.button("🔍 Fact-check", type="primary", disabled=not claim.strip())
+    run_search = st.button("🌐 Verify with internet search", disabled=not claim.strip())
 
+    checker_fn = None
+    status_label = ""
     if run and claim.strip():
+        checker_fn = verify_claim_model
+        status_label = "Analysing claim…"
+    elif run_search and claim.strip():
+        checker_fn = verify_claim_search
+        status_label = "Searching the web…"
+
+    if checker_fn:
         tool_log: list[str] = []
 
         # Capture print() output from factcheck.py to show tool activity
         old_stdout = sys.stdout
         buf = io.StringIO()
 
-        with st.status("Researching claim…", expanded=True) as status:
+        with st.status(status_label, expanded=True) as status:
             log_placeholder = st.empty()
 
             class _LogCapture(io.StringIO):
@@ -92,7 +102,7 @@ def main() -> None:
 
             sys.stdout = _LogCapture()
             try:
-                result = verify_claim(claim.strip())
+                result = checker_fn(claim.strip())
                 status.update(label="Done ✓", state="complete", expanded=False)
             except Exception as exc:
                 status.update(label="Error", state="error", expanded=True)

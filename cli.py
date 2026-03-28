@@ -18,7 +18,7 @@ from typing import Any
 
 import litellm
 
-from factcheck import verify_claim
+from factcheck import verify_claim_model
 
 
 def main(claim: str) -> dict[str, Any]:
@@ -34,7 +34,7 @@ def main(claim: str) -> dict[str, Any]:
     print(f"Model    : {model}")
     print()
 
-    result = verify_claim(claim, model=model)
+    result = verify_claim_model(claim, model=model)
 
     print()
     print("=" * 60)
