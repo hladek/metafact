@@ -21,32 +21,96 @@ VERDICT_CONFIG = {
     "UNVERIFIABLE": {"color": "#546e7a", "icon": "❓",  "label": "Unverifiable"},
 }
 
+_CSS = """
+<style>
+    /* Page background & typography */
+    [data-testid="stAppViewContainer"] {
+        background: #f8f9fb;
+    }
+    [data-testid="stMain"] > div {
+        padding-top: 2.5rem;
+    }
+    h1 { letter-spacing: -0.5px; }
+
+    /* Subtle text area */
+    textarea {
+        border-radius: 10px !important;
+        font-size: 1rem !important;
+    }
+
+    /* Round primary button */
+    [data-testid="stBaseButton-primary"] button,
+    button[kind="primary"] {
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+    }
+
+    /* Expander polish */
+    [data-testid="stExpander"] {
+        border-radius: 8px !important;
+        border: 1px solid #e0e0e0 !important;
+    }
+
+    /* Hide the Streamlit footer */
+    footer { visibility: hidden; }
+</style>
+"""
+
 
 def _render_verdict(result: dict) -> None:
     verdict = result.get("verdict", "UNVERIFIABLE")
     cfg = VERDICT_CONFIG.get(verdict, VERDICT_CONFIG["UNVERIFIABLE"])
     confidence = result.get("confidence", 0.0)
+    bar_color = cfg["color"]
+    pct = int(confidence * 100)
 
     st.markdown(
         f"""
         <div style="
-            background:{cfg['color']}22;
-            border-left: 6px solid {cfg['color']};
-            border-radius: 6px;
-            padding: 1rem 1.4rem;
-            margin-bottom: 1rem;
+            background: {cfg['color']}18;
+            border: 1px solid {cfg['color']}55;
+            border-radius: 10px;
+            padding: 1.1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.25rem;
         ">
-            <span style="font-size:2rem;">{cfg['icon']}</span>
-            <span style="font-size:1.5rem; font-weight:700; color:{cfg['color']}; margin-left:0.5rem;">
-                {cfg['label']}
+            <span style="font-size:1.6rem; line-height:1;">
+                {cfg['icon']}
+                <span style="
+                    font-size:1.35rem;
+                    font-weight:700;
+                    color:{cfg['color']};
+                    margin-left:0.5rem;
+                    vertical-align:middle;
+                ">{cfg['label']}</span>
             </span>
+            <span style="
+                font-size:1.1rem;
+                font-weight:600;
+                color:{cfg['color']};
+                opacity:0.85;
+            ">{pct}% confidence</span>
+        </div>
+        <div style="
+            height: 5px;
+            border-radius: 0 0 6px 6px;
+            background: #e0e0e0;
+            margin-bottom: 1.2rem;
+            overflow: hidden;
+        ">
+            <div style="
+                width: {pct}%;
+                height: 100%;
+                background: {bar_color};
+                border-radius: 0 0 6px 6px;
+                transition: width 0.4s ease;
+            "></div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
-    st.markdown(f"**Confidence:** {confidence:.0%}")
-    st.progress(confidence)
 
 
 def main() -> None:
@@ -57,17 +121,24 @@ def main() -> None:
         initial_sidebar_state="collapsed",
     )
 
+    st.markdown(_CSS, unsafe_allow_html=True)
+
     st.title("🔍 MetaFact")
-    st.caption("AI-powered political fact-checker using web search and LLMs.")
+    st.caption("AI-powered political claim fact-checker · LLM · Web search")
+    st.divider()
 
     claim = st.text_area(
         "Enter a claim to fact-check",
         placeholder="e.g. The US has the highest GDP per capita in the world.",
-        height=120,
+        height=110,
+        label_visibility="collapsed",
     )
 
-    run = st.button("🔍 Fact-check", type="primary", disabled=not claim.strip())
-    run_search = st.button("🌐 Verify with internet search", disabled=not claim.strip())
+    col1, col2, _ = st.columns([2, 2.5, 3])
+    with col1:
+        run = st.button("🔍 Fact-check", type="primary", use_container_width=True, disabled=not claim.strip())
+    with col2:
+        run_search = st.button("🌐 Search & verify", use_container_width=True, disabled=not claim.strip())
 
     checker_fn = None
     status_label = ""
@@ -115,10 +186,10 @@ def main() -> None:
             st.divider()
             _render_verdict(result)
 
-            st.subheader("Summary")
+            st.markdown("**Summary**")
             st.write(result.get("summary", "—"))
 
-            with st.expander("📄 Full Justification"):
+            with st.expander("📄 Full justification"):
                 st.write(result.get("justification", "—"))
 
             sources = result.get("sources", [])
